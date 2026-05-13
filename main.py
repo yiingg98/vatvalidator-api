@@ -62,6 +62,7 @@ COUNTRY_NAMES = {
 }
 
 VIES_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{country_code}/vat/{vat_number}"
+VIES_FALLBACK_URL = "https://viesapi.eu/api/search/vat/{country_code}{vat_number}"
 
 
 def clean_vat(vat: str) -> str:
@@ -100,19 +101,31 @@ async def check_vies(country_code: str, vat_number: str) -> dict:
     number_only = vat_number[len(country_code):]
     url = VIES_URL.format(country_code=country_code, vat_number=number_only)
 
+    default_error = {
+        "vies_valid": None,
+        "company_name": None,
+        "company_address": None,
+        "request_date": None,
+        "vies_available": False,
+        "error": "VIES service unavailable — format check only"
+    }
+
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             r = await client.get(url)
             if r.status_code == 200:
-                data = r.json()
-                return {
-                    "vies_valid": data.get("isValid", False),
-                    "company_name": data.get("name", "").strip() or None,
-                    "company_address": data.get("address", "").strip() or None,
-                    "request_date": data.get("requestDate"),
-                    "vies_available": True,
-                    "error": None
-                }
+                try:
+                    data = r.json()
+                    return {
+                        "vies_valid": data.get("isValid", False),
+                        "company_name": data.get("name", "").strip() or None,
+                        "company_address": data.get("address", "").strip() or None,
+                        "request_date": data.get("requestDate"),
+                        "vies_available": True,
+                        "error": None
+                    }
+                except Exception:
+                    return default_error
             elif r.status_code == 404:
                 return {
                     "vies_valid": False,
@@ -140,7 +153,7 @@ async def check_vies(country_code: str, vat_number: str) -> dict:
                 "vies_available": False,
                 "error": "VIES service timed out — try again"
             }
-        except Exception as e:
+        except Exception:
             return {
                 "vies_valid": None,
                 "company_name": None,
